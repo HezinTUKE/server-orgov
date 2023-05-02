@@ -13,78 +13,103 @@ from datetime import timedelta
 
 from .models import User
 
+from django.contrib.auth.models import User
+
+from .forms import RegPhoneForm, RegSMSForm, RegLoginForm
+
 session = SessionStore()
+
+session.set_expiry(
+    timedelta(minutes=30)
+)
 
 @csrf_exempt
 def send_sms(req : HttpRequest):
     if(req.method == 'POST'):
 
-        d = json.loads(req.body.decode())
-        phone = d.get('phone')
+        data = json.loads(req.body.decode())
 
-        ver_code = ''.join(random.choices(string.ascii_uppercase, k=5)) 
+        f = RegPhoneForm(data)
 
-        with sms.get_connection() as connection:
+        if f.is_valid():    
+            ver_code   = ''.join(random.choices(string.ascii_uppercase, k=5))
 
-            session['ver_code'] = ver_code
+            with sms.get_connection() as connection:
 
-            num = sms.Message(
-                ver_code, '+421932132131', [f'{phone}'],
-                connection=connection
-            ).send()
+                session['ver_code'] = ver_code
 
-            print(num)
+                num = sms.Message(
+                    ver_code, '+421932132131', [{data['phone']}],
+                    connection=connection
+                ).send()
 
-            if num > 0 :
+            if num > 0 : code = 200
+            else : code = 303
 
-                session.set_expiry(
-                    timedelta(minutes=30)
-                )
-
-                req.session['ver_code'] = ver_code
-
-                return JsonResponse(
-                    {'code' : 200}
-                )
-            
-            else :
-                return JsonResponse(
-                    {'code' : 403}
-                )
+        else :
+            print(f.errors.as_data())
+            code = 403    
+        
+        return JsonResponse(
+                    {'code' : code}
+        )
    
 @csrf_exempt
 def check_sms(req : HttpRequest):
     if(req.method == 'POST'):
-        d = json.loads(req.body.decode())
+        data = json.loads(req.body.decode())
 
-        ver_code : str = d.get('sms')
-        
-        ver_code = ver_code.upper()
+        f = RegSMSForm(data)
+
+        if f.is_valid():
+            if data['ver_code'] == session['ver_code']: code = 200
+            else : code = 403
+        else : code = 401
 
         print(session['ver_code'])
         
-        if ver_code == session['ver_code']:
-            return JsonResponse(
-                {'code' : 200}
-            )
+        return JsonResponse(
+            {'code' : code}
+        )
+
+@csrf_exempt
+def check_username(req : HttpRequest):
+    if(req.method == 'POST'):
+        data = json.loads(req.body.decode)
+        
+        f = RegLoginForm(data)
+
+        if f.is_valid():
+            _username = data.get('username')
+
+            user = User.objects.all()
+
+            userquery = user.filter(username = _username).query
+
+            userquery = list(userquery)
+
+            if len(userquery) > 0 : code =  300
+            else : code = 200
         else : 
-            return JsonResponse(
-                {'code' : 403}
-            )
+            code = 401
+
+        return JsonResponse(
+            {'exists' : code}
+        )
+
 
 @csrf_exempt
 def create_user(req : HttpRequest):
     if(req.method == 'POST'):
         d = json.loads(req.body.decode())
 
-        user = User.objects.create(
-            name = d.get('name'),
-            lastName = d.get('lastName'),
+        user = User.objects.create_user(
+            username=d.get('name'),
             email = d.get('email'),
-            phone = d.get('phone'),
-            username = d.get('username'),
             password = d.get('password'),
-            authorized = d.get('authorized')
+            first_name = d.get('name'),
+            last_name = d.get('lastName'),
+            phone = d.get('phone')
         )
 
         return JsonResponse(
